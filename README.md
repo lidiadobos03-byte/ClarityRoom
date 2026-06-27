@@ -47,6 +47,18 @@ Copiază secretul `whsec_...` rezultat în `STRIPE_WEBHOOK_SECRET`.
 
 După ce modifici `.env`, repornește `npm run dev`. În aplicație, intră în dashboard la `Credits`, alege un pachet și folosește cardurile de test Stripe.
 
+## Earnings și payout-uri pentru ghizi
+
+Creditele de ghid sunt separate de banii câștigați. `Credits` cumpără credite pentru deblocarea oportunităților, iar `Earnings` arată valoarea estimată sau payable pentru sesiuni.
+
+Profilul de payout prin Stripe Connect este închis implicit. Pentru a permite onboarding-ul ghizilor în Stripe, setează explicit:
+
+```bash
+ENABLE_GUIDE_PAYOUTS=true
+```
+
+Acest flag trebuie folosit doar după ce workflow-ul de payout, comisioanele, refund-urile, anulările și obligațiile fiscale/juridice sunt aprobate.
+
 ## Limite înainte de lansare
 
 Acesta nu este încă un serviciu gata de producție. Mai sunt necesare:
