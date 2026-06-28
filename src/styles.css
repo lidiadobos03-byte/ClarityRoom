@@ -125,7 +125,15 @@ textarea { resize: vertical; line-height: 1.6; }
 input:focus, textarea:focus, select:focus { border-color: var(--gold); box-shadow: 0 0 0 3px #aa82510c; }
 label > small { text-align: right; color: #17231f67; font-weight: 400; }
 .form-error { color: #a34135; background: #a341350a; border-left: 2px solid #a34135; padding: 9px 12px; font-size: 12px; margin: 0; }
+.form-success { color: #42634f; background: #42634f0a; border-left: 2px solid #42634f; padding: 9px 12px; font-size: 12px; margin: 0; }
 .form-note { font-size: 10px; color: #17231f67; text-align: center; margin: 0; }
+.auth-message { display: grid; gap: 6px; }
+.auth-message h3 { font-size: 27px; margin: 0; }
+.auth-message p { color: #17231f78; font-size: 12px; margin: 0; }
+.auth-link-button { justify-content: center; width: 100%; color: #17231f8a; }
+.dev-reset-link { display: block; padding: 10px 12px; background: var(--sand); color: var(--ink); font-size: 11px; text-align: center; overflow-wrap: anywhere; }
+.remember-row { display: flex; grid-template-columns: none; align-items: center; gap: 10px; color: #17231f8a; font-size: 11px; }
+.remember-row input { width: 16px; height: 16px; padding: 0; accent-color: var(--forest); }
 footer { border-top: 1px solid var(--line); padding: 38px 0; }
 footer .shell { display: grid; grid-template-columns: 1fr 1fr 1fr; align-items: center; font-size: 11px; color: #17231f6e; }
 footer p:nth-child(2) { text-align: center; }

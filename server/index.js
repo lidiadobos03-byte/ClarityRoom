@@ -3,9 +3,16 @@ import path from 'node:path';
 import express from 'express';
 import { config } from './config.js';
 import { db, publicUser } from './db.js';
-import { hashPassword, requireAuth, signToken, verifyPassword } from './auth.js';
+import { REMEMBERED_AUTH_TOKEN_MS, SESSION_AUTH_TOKEN_MS, hashPassword, requireAuth, signToken, verifyPassword } from './auth.js';
 import { payoutPolicy, quoteSessionEarnings, sumEarningsByStatus } from './earnings.js';
 import { findPackage, packages } from './packages.js';
+import {
+  PASSWORD_RESET_TTL_MS,
+  buildPasswordResetLink,
+  createPasswordResetToken,
+  hashPasswordResetToken,
+  sendPasswordResetEmail,
+} from './passwordReset.js';
 import { createV2GuideAccount, requireStripe, stripe } from './stripe.js';
 
 const app = express();
@@ -78,6 +85,7 @@ app.post('/api/auth/register', async (req, res) => {
   const password = String(req.body.password || '');
   const alias = String(req.body.alias || '').trim();
   const role = req.body.role;
+  const tokenDuration = req.body.remember === false ? SESSION_AUTH_TOKEN_MS : REMEMBERED_AUTH_TOKEN_MS;
 
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Enter a valid email address.' });
   if (password.length < 10) return res.status(400).json({ error: 'Use at least 10 characters for the password.' });
@@ -97,16 +105,84 @@ app.post('/api/auth/register', async (req, res) => {
     INSERT INTO ledger_entries (id, user_id, amount, reason, reference_type, reference_id)
     VALUES (?, ?, ?, 'Founding member welcome credits', 'welcome_grant', ?)
   `).run(crypto.randomUUID(), user.id, 30, user.id);
-  return res.status(201).json({ token: signToken(user.id), user: publicUser(saved) });
+  return res.status(201).json({ token: signToken(user.id, tokenDuration), user: publicUser(saved) });
 });
 
 app.post('/api/auth/login', async (req, res) => {
   const email = String(req.body.email || '').trim().toLowerCase();
+  const tokenDuration = req.body.remember === false ? SESSION_AUTH_TOKEN_MS : REMEMBERED_AUTH_TOKEN_MS;
   const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
   if (!user || !(await verifyPassword(String(req.body.password || ''), user.password_hash))) {
     return res.status(401).json({ error: 'Email or password is incorrect.' });
   }
-  return res.json({ token: signToken(user.id), user: publicUser(user) });
+  return res.json({ token: signToken(user.id, tokenDuration), user: publicUser(user) });
+});
+
+app.post('/api/auth/password-reset/request', async (req, res, next) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const response = { ok: true, message: 'If an account uses that email, a password reset link has been sent.' };
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.json(response);
+
+  try {
+    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+    if (!user) return res.json(response);
+
+    const token = createPasswordResetToken();
+    const resetLink = buildPasswordResetLink(token);
+    db.prepare('DELETE FROM password_reset_tokens WHERE user_id = ? AND used_at IS NULL').run(user.id);
+    db.prepare(`
+      INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at)
+      VALUES (?, ?, ?, ?)
+    `).run(crypto.randomUUID(), user.id, hashPasswordResetToken(token), Date.now() + PASSWORD_RESET_TTL_MS);
+
+    const emailResult = await sendPasswordResetEmail(user.email, resetLink);
+    if (!emailResult.sent && config.isProduction) {
+      console.warn(`Password reset email was not sent for ${user.id}: ${emailResult.reason}`);
+    }
+
+    return res.json({
+      ...response,
+      ...(!config.isProduction && !emailResult.sent ? { resetLink } : {}),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/auth/password-reset/confirm', async (req, res, next) => {
+  const token = String(req.body.token || '');
+  const password = String(req.body.password || '');
+  const tokenDuration = req.body.remember === false ? SESSION_AUTH_TOKEN_MS : REMEMBERED_AUTH_TOKEN_MS;
+  if (token.length < 20) return res.status(400).json({ error: 'Reset link is invalid or has expired.' });
+  if (password.length < 10) return res.status(400).json({ error: 'Use at least 10 characters for the password.' });
+
+  try {
+    const tokenHash = hashPasswordResetToken(token);
+    const passwordHash = await hashPassword(password);
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const reset = db.prepare(`
+        SELECT r.*, u.id AS account_id
+        FROM password_reset_tokens r
+        JOIN users u ON u.id = r.user_id
+        WHERE r.token_hash = ? AND r.used_at IS NULL AND r.expires_at > ?
+      `).get(tokenHash, Date.now());
+      if (!reset) throw Object.assign(new Error('Reset link is invalid or has expired.'), { status: 400 });
+
+      db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, reset.account_id);
+      db.prepare('UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = ?').run(reset.id);
+      db.prepare('DELETE FROM password_reset_tokens WHERE user_id = ? AND used_at IS NULL').run(reset.account_id);
+      db.exec('COMMIT');
+
+      const user = db.prepare('SELECT * FROM users WHERE id = ?').get(reset.account_id);
+      return res.json({ token: signToken(user.id, tokenDuration), user: publicUser(user) });
+    } catch (error) {
+      db.exec('ROLLBACK');
+      return res.status(error.status || 400).json({ error: error.message });
+    }
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.get('/api/me', requireAuth(db), (req, res) => res.json({ user: publicUser(req.user) }));

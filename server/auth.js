@@ -3,6 +3,9 @@ import { promisify } from 'node:util';
 import { config } from './config.js';
 
 const scrypt = promisify(crypto.scrypt);
+export const SESSION_AUTH_TOKEN_MS = 1000 * 60 * 60 * 24;
+export const DEFAULT_AUTH_TOKEN_MS = 1000 * 60 * 60 * 24 * 7;
+export const REMEMBERED_AUTH_TOKEN_MS = 1000 * 60 * 60 * 24 * 30;
 
 function encode(value) {
   return Buffer.from(value).toString('base64url');
@@ -22,8 +25,8 @@ export async function verifyPassword(password, stored) {
   return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
 }
 
-export function signToken(userId) {
-  const payload = encode(JSON.stringify({ sub: userId, exp: Date.now() + 1000 * 60 * 60 * 24 * 7 }));
+export function signToken(userId, expiresInMs = DEFAULT_AUTH_TOKEN_MS) {
+  const payload = encode(JSON.stringify({ sub: userId, exp: Date.now() + expiresInMs }));
   const signature = crypto.createHmac('sha256', config.authSecret).update(payload).digest('base64url');
   return `${payload}.${signature}`;
 }

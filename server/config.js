@@ -11,6 +11,8 @@ export const config = {
   stripeApiVersion: process.env.STRIPE_API_VERSION || '2026-02-25.clover',
   allowLiveStripe: process.env.ALLOW_LIVE_STRIPE === 'true',
   enableGuidePayouts: process.env.ENABLE_GUIDE_PAYOUTS === 'true',
+  resendApiKey: process.env.RESEND_API_KEY || '',
+  emailFrom: process.env.EMAIL_FROM || 'ClarityRoom <hello@clarityroom.co.uk>',
   isProduction: process.env.NODE_ENV === 'production',
 };
 
