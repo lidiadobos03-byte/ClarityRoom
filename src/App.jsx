@@ -47,20 +47,53 @@ function Status({ value }) {
   return <span className={`status status-${value}`}>{labels[value] || value}</span>;
 }
 
-function AuthPanel({ role, setRole, onAuthenticated }) {
-  const [mode, setMode] = useState('register');
-  const [form, setForm] = useState({ email: '', password: '', alias: '' });
+function AuthPanel({ role, setRole, onAuthenticated, resetToken }) {
+  const [mode, setMode] = useState(resetToken ? 'reset' : 'register');
+  const [form, setForm] = useState({ email: '', password: '', alias: '', remember: true });
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [resetLink, setResetLink] = useState('');
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (resetToken) setMode('reset');
+  }, [resetToken]);
+
+  function chooseMode(nextMode) {
+    setMode(nextMode);
+    setError('');
+    setNotice('');
+    setResetLink('');
+  }
 
   async function submit(event) {
     event.preventDefault();
     setBusy(true);
     setError('');
+    setNotice('');
+    setResetLink('');
     try {
-      const body = mode === 'register' ? { ...form, role } : { email: form.email, password: form.password };
+      if (mode === 'forgot') {
+        const data = await api('/api/auth/password-reset/request', { method: 'POST', body: JSON.stringify({ email: form.email }) });
+        setNotice(data.message);
+        if (data.resetLink) setResetLink(data.resetLink);
+        return;
+      }
+
+      if (mode === 'reset') {
+        const data = await api('/api/auth/password-reset/confirm', {
+          method: 'POST',
+          body: JSON.stringify({ token: resetToken, password: form.password, remember: form.remember }),
+        });
+        window.history.replaceState({}, '', window.location.pathname);
+        authStore.set(data.token, form.remember);
+        onAuthenticated(data.user);
+        return;
+      }
+
+      const body = mode === 'register' ? { ...form, role } : { email: form.email, password: form.password, remember: form.remember };
       const data = await api(`/api/auth/${mode}`, { method: 'POST', body: JSON.stringify(body) });
-      authStore.set(data.token);
+      authStore.set(data.token, form.remember);
       onAuthenticated(data.user);
     } catch (requestError) {
       setError(requestError.message);
@@ -78,10 +111,12 @@ function AuthPanel({ role, setRole, onAuthenticated }) {
         <div className="welcome-credit"><Icon name="spark" /><span><strong>30 welcome credits</strong><small>Automatically added to your account</small></span></div>
       </div>
       <form className="auth-card" onSubmit={submit}>
-        <div className="auth-tabs">
-          <button type="button" className={mode === 'register' ? 'active' : ''} onClick={() => setMode('register')}>Create account</button>
-          <button type="button" className={mode === 'login' ? 'active' : ''} onClick={() => setMode('login')}>Sign in</button>
-        </div>
+        {mode !== 'reset' && (
+          <div className="auth-tabs">
+            <button type="button" className={mode === 'register' ? 'active' : ''} onClick={() => chooseMode('register')}>Create account</button>
+            <button type="button" className={mode === 'login' || mode === 'forgot' ? 'active' : ''} onClick={() => chooseMode('login')}>Sign in</button>
+          </div>
+        )}
         {mode === 'register' && (
           <>
             <div className="account-type">
@@ -95,19 +130,31 @@ function AuthPanel({ role, setRole, onAuthenticated }) {
             <label>Public alias<input required minLength="2" maxLength="40" placeholder="e.g. Quiet Oak" value={form.alias} onChange={event => setForm({ ...form, alias: event.target.value })} /></label>
           </>
         )}
-        <label>Email address<input required type="email" autoComplete="email" placeholder="you@example.com" value={form.email} onChange={event => setForm({ ...form, email: event.target.value })} /></label>
-        <label>Password<input required type="password" minLength="10" autoComplete={mode === 'register' ? 'new-password' : 'current-password'} placeholder="At least 10 characters" value={form.password} onChange={event => setForm({ ...form, password: event.target.value })} /></label>
+        {mode === 'forgot' && <div className="auth-message"><h3>Reset your password</h3><p>Enter your email address and we will send a reset link if an account exists.</p></div>}
+        {mode === 'reset' && <div className="auth-message"><h3>Choose a new password</h3><p>Use at least 10 characters. After this, you will be signed in automatically.</p></div>}
+        {mode !== 'reset' && <label>Email address<input required type="email" autoComplete="email" placeholder="you@example.com" value={form.email} onChange={event => setForm({ ...form, email: event.target.value })} /></label>}
+        {mode !== 'forgot' && <label>{mode === 'reset' ? 'New password' : 'Password'}<input required type="password" minLength="10" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder="At least 10 characters" value={form.password} onChange={event => setForm({ ...form, password: event.target.value })} /></label>}
+        {mode !== 'forgot' && (
+          <label className="remember-row">
+            <input type="checkbox" checked={form.remember} onChange={event => setForm({ ...form, remember: event.target.checked })} />
+            <span>Keep me signed in</span>
+          </label>
+        )}
         {error && <p className="form-error">{error}</p>}
+        {notice && <p className="form-success">{notice}</p>}
+        {resetLink && <a className="dev-reset-link" href={resetLink}>Open local reset link</a>}
         <button className="button button-dark wide" disabled={busy}>
-          {busy ? 'One moment…' : mode === 'register' ? 'Enter ClarityRoom' : 'Welcome back'} <Icon name="arrow" />
+          {busy ? 'One moment…' : mode === 'register' ? 'Enter ClarityRoom' : mode === 'login' ? 'Welcome back' : mode === 'forgot' ? 'Send reset link' : 'Update password'} <Icon name="arrow" />
         </button>
+        {mode === 'login' && <button type="button" className="text-button auth-link-button" onClick={() => chooseMode('forgot')}>Forgot password?</button>}
+        {mode === 'forgot' && <button type="button" className="text-button auth-link-button" onClick={() => chooseMode('login')}>Back to sign in</button>}
         <p className="form-note">By continuing, you agree to respectful, strictly platonic use of the platform.</p>
       </form>
     </div>
   );
 }
 
-function Landing({ onAuthenticated }) {
+function Landing({ onAuthenticated, resetToken }) {
   const [role, setRole] = useState('client');
   return (
     <main className="landing">
@@ -173,7 +220,7 @@ function Landing({ onAuthenticated }) {
       </section>
 
       <section id="join" className="section shell">
-        <AuthPanel role={role} setRole={setRole} onAuthenticated={onAuthenticated} />
+        <AuthPanel role={role} setRole={setRole} onAuthenticated={onAuthenticated} resetToken={resetToken} />
       </section>
 
       <section className="section reviews-section">
@@ -851,13 +898,19 @@ function Dashboard({ user, setUser, logout }) {
 }
 
 export default function App() {
+  const resetToken = new URLSearchParams(window.location.search).get('reset_password');
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(Boolean(authStore.get()));
+  const [loading, setLoading] = useState(Boolean(authStore.get()) && !resetToken);
 
   useEffect(() => {
+    if (resetToken) {
+      authStore.clear();
+      setLoading(false);
+      return;
+    }
     if (!authStore.get()) return;
     api('/api/me').then(data => setUser(data.user)).catch(() => authStore.clear()).finally(() => setLoading(false));
-  }, []);
+  }, [resetToken]);
 
   function logout() {
     authStore.clear();
@@ -865,5 +918,5 @@ export default function App() {
   }
 
   if (loading) return <div className="loading-screen"><span className="brand">Clarity<span>Room</span></span><i /></div>;
-  return user ? <Dashboard user={user} setUser={setUser} logout={logout} /> : <Landing onAuthenticated={setUser} />;
+  return user ? <Dashboard user={user} setUser={setUser} logout={logout} /> : <Landing onAuthenticated={setUser} resetToken={resetToken} />;
 }

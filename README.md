@@ -47,6 +47,21 @@ Copiază secretul `whsec_...` rezultat în `STRIPE_WEBHOOK_SECRET`.
 
 După ce modifici `.env`, repornește `npm run dev`. În aplicație, intră în dashboard la `Credits`, alege un pachet și folosește cardurile de test Stripe.
 
+## Resetare parolă
+
+Fluxul de resetare funcționează pentru conturile `client` și `guide`. Tokenurile sunt stocate hash-uit, expiră după 30 de minute și pot fi folosite o singură dată.
+
+Autentificarea include opțiunea `Keep me signed in`: aplicația nu salvează parola, ci păstrează un token de sesiune mai lung. Dacă opțiunea nu este bifată, tokenul rămâne doar în sesiunea browserului.
+
+În producție, configurează un provider Resend pentru emailuri reale:
+
+```bash
+RESEND_API_KEY=re_...
+EMAIL_FROM="ClarityRoom <hello@clarityroom.co.uk>"
+```
+
+În development, dacă `RESEND_API_KEY` lipsește, endpointul returnează un link de resetare ca să poți testa local fără email provider.
+
 ## Earnings și payout-uri pentru ghizi
 
 Creditele de ghid sunt separate de banii câștigați. `Credits` cumpără credite pentru deblocarea oportunităților, iar `Earnings` arată valoarea estimată sau payable pentru sesiuni.

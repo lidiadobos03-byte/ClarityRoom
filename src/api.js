@@ -1,9 +1,16 @@
 const TOKEN_KEY = 'clarityroom_token';
 
 export const authStore = {
-  get: () => localStorage.getItem(TOKEN_KEY),
-  set: token => localStorage.setItem(TOKEN_KEY, token),
-  clear: () => localStorage.removeItem(TOKEN_KEY),
+  get: () => localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY),
+  set: (token, remember = true) => {
+    localStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(TOKEN_KEY);
+    (remember ? localStorage : sessionStorage).setItem(TOKEN_KEY, token);
+  },
+  clear: () => {
+    localStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(TOKEN_KEY);
+  },
 };
 
 export async function api(path, options = {}) {
