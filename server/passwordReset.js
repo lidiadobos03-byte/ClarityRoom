@@ -48,7 +48,10 @@ export async function sendPasswordResetEmail(to, resetLink) {
 
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
-    throw new Error(payload.message || payload.error || 'Could not send password reset email.');
+    return {
+      sent: false,
+      reason: payload.message || payload.error || 'Could not send password reset email.',
+    };
   }
 
   return { sent: true };

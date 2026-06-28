@@ -4,6 +4,7 @@ import {
   buildPasswordResetLink,
   createPasswordResetToken,
   hashPasswordResetToken,
+  sendPasswordResetEmail,
 } from '../server/passwordReset.js';
 
 test('password reset tokens are random URL-safe secrets', () => {
@@ -26,4 +27,10 @@ test('password reset links carry the reset token as a query parameter', () => {
   const link = new URL(buildPasswordResetLink('abc123'));
   assert.equal(link.searchParams.get('reset_password'), 'abc123');
   assert.equal(link.hash, '#join');
+});
+
+test('password reset email reports missing provider without throwing', async () => {
+  const result = await sendPasswordResetEmail('person@example.com', 'https://example.com/reset');
+  assert.equal(result.sent, false);
+  assert.equal(result.reason, 'missing_resend_api_key');
 });

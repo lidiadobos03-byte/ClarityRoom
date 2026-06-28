@@ -136,8 +136,11 @@ app.post('/api/auth/password-reset/request', async (req, res, next) => {
     `).run(crypto.randomUUID(), user.id, hashPasswordResetToken(token), Date.now() + PASSWORD_RESET_TTL_MS);
 
     const emailResult = await sendPasswordResetEmail(user.email, resetLink);
-    if (!emailResult.sent && config.isProduction) {
+    if (!emailResult.sent) {
       console.warn(`Password reset email was not sent for ${user.id}: ${emailResult.reason}`);
+      if (config.isProduction) {
+        return res.status(503).json({ error: 'Password reset email could not be sent right now. Please try again later.' });
+      }
     }
 
     return res.json({
