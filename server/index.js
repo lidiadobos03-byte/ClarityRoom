@@ -4,6 +4,7 @@ import express from 'express';
 import { config } from './config.js';
 import { db, publicUser } from './db.js';
 import { hashPassword, requireAuth, signToken, verifyPassword } from './auth.js';
+import { payoutPolicy, quoteSessionEarnings, sumEarningsByStatus } from './earnings.js';
 import { findPackage, packages } from './packages.js';
 import { createV2GuideAccount, requireStripe, stripe } from './stripe.js';
 
@@ -65,7 +66,11 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), (req,
 
 app.use(express.json({ limit: '32kb' }));
 
-app.get('/api/health', (req, res) => res.json({ ok: true, paymentsEnabled: Boolean(stripe) }));
+app.get('/api/health', (req, res) => res.json({
+  ok: true,
+  paymentsEnabled: Boolean(stripe),
+  guidePayoutsEnabled: config.guidePayoutsEnabled,
+}));
 app.get('/api/packages', (req, res) => res.json({ packages }));
 
 app.post('/api/auth/register', async (req, res) => {
@@ -153,7 +158,48 @@ app.get('/api/checkout-sessions/:id/confirm', requireAuth(db), requireStripe, as
   }
 });
 
+app.get('/api/guide/earnings', requireAuth(db, 'guide'), (req, res) => {
+  const entries = db.prepare(`
+    SELECT e.*, s.scheduled_for, s.duration_minutes, r.topic
+    FROM guide_earnings e
+    LEFT JOIN sessions s ON s.id = e.session_id
+    LEFT JOIN requests r ON r.id = s.request_id
+    WHERE e.guide_id = ?
+    ORDER BY e.created_at DESC
+    LIMIT 20
+  `).all(req.user.id);
+
+  const projectedSessions = db.prepare(`
+    SELECT s.id, s.scheduled_for, s.duration_minutes, s.status, r.topic
+    FROM sessions s
+    JOIN requests r ON r.id = s.request_id
+    WHERE s.guide_id = ? AND s.status = 'scheduled'
+    ORDER BY s.created_at DESC
+  `).all(req.user.id).map(session => ({
+    ...session,
+    ...quoteSessionEarnings(session.duration_minutes),
+  }));
+
+  const summary = sumEarningsByStatus(entries);
+  summary.projectedPence = projectedSessions.reduce((sum, session) => sum + session.guideEarningsPence, 0);
+
+  return res.json({
+    currency: payoutPolicy.currency,
+    payoutsEnabled: config.guidePayoutsEnabled,
+    policy: {
+      platformFeePercent: payoutPolicy.platformFeePercent,
+      ratesByDuration: payoutPolicy.ratesByDuration,
+    },
+    summary,
+    projectedSessions,
+    entries,
+  });
+});
+
 app.post('/api/connect/onboarding', requireAuth(db, 'guide'), requireStripe, async (req, res, next) => {
+  if (!config.guidePayoutsEnabled) {
+    return res.status(503).json({ error: 'Guide payout setup is not open yet.' });
+  }
   try {
     let accountId = req.user.stripe_account_id;
     if (!accountId) {

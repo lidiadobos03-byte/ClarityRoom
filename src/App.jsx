@@ -26,6 +26,7 @@ function Icon({ name }) {
     logout: <><path d="M10 5H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h5M14 8l4 4-4 4M18 12H8" /></>,
     check: <><path d="m5 12 4 4L19 6" /></>,
     bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></>,
+    wallet: <><path d="M19 7V6a2 2 0 0 0-2-2H5a3 3 0 0 0 0 6h14v10H5a3 3 0 0 1-3-3V7" /><path d="M16 14h.01" /></>,
   };
   return <svg className="icon" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
 }
@@ -38,6 +39,10 @@ function Status({ value }) {
     selected: 'Selected',
     not_selected: 'Closed',
     scheduled: 'Scheduled',
+    pending: 'Pending',
+    available: 'Available',
+    paid: 'Paid',
+    cancelled: 'Cancelled',
   };
   return <span className={`status status-${value}`}>{labels[value] || value}</span>;
 }
@@ -223,6 +228,7 @@ function Sidebar({ user, active, setActive, logout, unreadCount, openNotificatio
         <button className={active === 'requests' ? 'active' : ''} onClick={() => setActive('requests')}><Icon name="chat" /> {user.role === 'client' ? 'My requests' : 'Opportunity room'}</button>
         <button className={active === 'sessions' ? 'active' : ''} onClick={() => setActive('sessions')}><Icon name="calendar" /> Sessions</button>
         <button className={active === 'credits' ? 'active' : ''} onClick={() => setActive('credits')}><Icon name="card" /> Credits</button>
+        {user.role === 'guide' && <button className={active === 'earnings' ? 'active' : ''} onClick={() => setActive('earnings')}><Icon name="wallet" /> Earnings</button>}
         <button onClick={openNotifications}><span className="nav-icon-wrap"><Icon name="bell" />{unreadCount > 0 && <b>{unreadCount > 9 ? '9+' : unreadCount}</b>}</span> Notifications</button>
       </nav>
       <div className="sidebar-bottom">
@@ -354,14 +360,16 @@ function RequestList({ requests, onSelect }) {
 function GuideDashboard({ user, refreshUser, active, onMessagesRead }) {
   const [requests, setRequests] = useState([]);
   const [sessions, setSessions] = useState([]);
+  const [earnings, setEarnings] = useState(null);
   const [unlocking, setUnlocking] = useState(null);
   const [message, setMessage] = useState('');
   const [notice, setNotice] = useState('');
 
   const load = useCallback(async () => {
-    const [requestData, sessionData] = await Promise.all([api('/api/requests'), api('/api/sessions')]);
+    const [requestData, sessionData, earningsData] = await Promise.all([api('/api/requests'), api('/api/sessions'), api('/api/guide/earnings')]);
     setRequests(requestData.requests);
     setSessions(sessionData.sessions);
+    setEarnings(earningsData);
   }, []);
   useEffect(() => { load().catch(error => setNotice(error.message)); }, [load]);
 
@@ -404,6 +412,7 @@ function GuideDashboard({ user, refreshUser, active, onMessagesRead }) {
           <article><span className="stat-icon"><Icon name="spark" /></span><small>Guide balance</small><strong>{user.balance}</strong><p>unlock credits</p></article>
           <article><span className="stat-icon"><Icon name="chat" /></span><small>Open opportunities</small><strong>{available.length}</strong><p>private briefs available</p></article>
           <article><span className="stat-icon"><Icon name="calendar" /></span><small>Selected sessions</small><strong>{sessions.length}</strong><p>{sessions[0]?.scheduled_for || 'No matches yet'}</p></article>
+          <article><span className="stat-icon"><Icon name="wallet" /></span><small>Projected earnings</small><strong>{formatMoney(earnings?.summary?.projectedPence || 0)}</strong><p>scheduled session value</p></article>
         </div>
         <div className="content-section"><div className="content-head"><div><p className="kicker">Opportunity room</p><h2>New conversations</h2></div><span className="soft-label">{introduced.length} introductions sent</span></div>{requests.length ? opportunityList : <EmptyState icon="spark" title="The room is quiet" text="New private requests will appear here as clients publish them." />}</div>
         {unlocking && <IntroductionModal request={unlocking} message={message} setMessage={setMessage} close={() => setUnlocking(null)} submit={() => unlock(unlocking)} />}
@@ -413,6 +422,7 @@ function GuideDashboard({ user, refreshUser, active, onMessagesRead }) {
     requests: <div className="page-section"><div className="page-title"><div><p className="kicker">Opportunity room</p><h1>Listen where you<br /><em>can add value.</em></h1></div><span className="credit-chip"><Icon name="spark" /> {user.balance} credits</span></div>{requests.length ? opportunityList : <EmptyState icon="spark" title="No open requests yet" text="This space will update when a client asks for a conversation." />}{unlocking && <IntroductionModal request={unlocking} message={message} setMessage={setMessage} close={() => setUnlocking(null)} submit={() => unlock(unlocking)} />}{notice && <Toast text={notice} close={() => setNotice('')} />}</div>,
     sessions: <SessionsPage sessions={sessions} user={user} onMessagesRead={onMessagesRead} />,
     credits: <CreditsPage user={user} refreshUser={refreshUser} />,
+    earnings: <EarningsPage user={user} earnings={earnings} refreshEarnings={load} />,
   };
   return pages[active];
 }
@@ -477,17 +487,6 @@ function CreditsPage({ user, refreshUser }) {
     }
   }
 
-  async function startGuideOnboarding() {
-    setError('');
-    setNotice('');
-    try {
-      const data = await api('/api/connect/onboarding', { method: 'POST' });
-      window.location.assign(data.url);
-    } catch (requestError) {
-      setError(requestError.message);
-    }
-  }
-
   return (
     <div className="page-section">
       <div className="page-title">
@@ -498,7 +497,7 @@ function CreditsPage({ user, refreshUser }) {
         <div>
           <p className="kicker">{paymentsEnabled ? 'Stripe active' : 'Preview mode'}</p>
           <h2>{paymentsEnabled ? 'Secure checkout is ready.' : 'Payments are not configured yet.'}</h2>
-          <p>{paymentsEnabled ? 'Credit purchases open in Stripe Checkout. Your balance updates when the webhook confirms payment.' : 'Add Stripe test keys in .env and restart the server to enable real test checkouts.'}</p>
+          <p>{paymentsEnabled ? `${user.role === 'guide' ? 'Guide credit' : 'Credit'} purchases open in Stripe Checkout. Your balance updates when the webhook confirms payment.` : 'Add Stripe test keys in .env and restart the server to enable real test checkouts.'}</p>
         </div>
         <span><Icon name={paymentsEnabled ? 'check' : 'lock'} /></span>
       </div>
@@ -515,21 +514,94 @@ function CreditsPage({ user, refreshUser }) {
             <p>{item.description}</p>
             <div className="package-credits"><Icon name="spark" /><span>{item.credits}</span><small>credits</small></div>
             <button className="button button-dark wide" disabled={!paymentsEnabled || busyPackage === item.id} onClick={() => buyCredits(item.id)}>
-              {busyPackage === item.id ? 'Opening checkout…' : paymentsEnabled ? 'Buy with Stripe' : 'Stripe paused'} <Icon name="arrow" />
+              {busyPackage === item.id ? 'Opening checkout…' : paymentsEnabled ? `Buy ${user.role === 'guide' ? 'guide credits' : 'with Stripe'}` : 'Stripe paused'} <Icon name="arrow" />
             </button>
           </article>
         ))}
       </div>
-      {user.role === 'guide' && (
-        <div className="connect-card">
-          <div>
-            <p className="kicker">Guide payouts</p>
-            <h3>Prepare your payout profile</h3>
-            <p>When paid sessions are activated, guides will need a Stripe-connected profile before receiving payouts.</p>
-          </div>
-          <button className="button button-ghost" disabled={!paymentsEnabled} onClick={startGuideOnboarding}>{user.stripeAccountId ? 'Continue setup' : 'Start setup'} <Icon name="arrow" /></button>
+    </div>
+  );
+}
+
+function EarningsPage({ user, earnings, refreshEarnings }) {
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const summary = earnings?.summary || { availablePence: 0, pendingPence: 0, paidPence: 0, projectedPence: 0 };
+  const projectedSessions = earnings?.projectedSessions || [];
+  const entries = earnings?.entries || [];
+  const payoutsEnabled = Boolean(earnings?.payoutsEnabled);
+
+  async function startGuideOnboarding() {
+    setBusy(true);
+    setError('');
+    try {
+      const data = await api('/api/connect/onboarding', { method: 'POST' });
+      window.location.assign(data.url);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setBusy(false);
+      refreshEarnings();
+    }
+  }
+
+  return (
+    <div className="page-section">
+      <div className="page-title">
+        <div><p className="kicker">Guide earnings</p><h1>Money earned,<br /><em>apart from credits.</em></h1></div>
+        <span className="credit-chip"><Icon name="wallet" /> {formatMoney(summary.availablePence)} available</span>
+      </div>
+
+      <div className="earnings-grid">
+        <article><span className="stat-icon"><Icon name="wallet" /></span><small>Available</small><strong>{formatMoney(summary.availablePence)}</strong><p>ready for payout</p></article>
+        <article><span className="stat-icon"><Icon name="clock" /></span><small>Pending</small><strong>{formatMoney(summary.pendingPence)}</strong><p>held before release</p></article>
+        <article><span className="stat-icon"><Icon name="calendar" /></span><small>Projected</small><strong>{formatMoney(summary.projectedPence)}</strong><p>scheduled session value</p></article>
+        <article><span className="stat-icon"><Icon name="check" /></span><small>Paid</small><strong>{formatMoney(summary.paidPence)}</strong><p>sent to your payout profile</p></article>
+      </div>
+
+      <div className="connect-card payout-card">
+        <div>
+          <p className="kicker">Payout profile</p>
+          <h3>{payoutsEnabled ? 'Prepare your payout profile' : 'Payout setup coming soon'}</h3>
+          <p>{payoutsEnabled ? 'Stripe will collect the details needed to send guide earnings to your bank account.' : 'Guide earnings are tracked separately now. Bank payout setup opens after the platform payout workflow is approved.'}</p>
         </div>
-      )}
+        <button className="button button-ghost" disabled={!payoutsEnabled || busy} onClick={startGuideOnboarding}>
+          {busy ? 'Opening…' : user.stripeAccountId ? 'Continue setup' : payoutsEnabled ? 'Start setup' : 'Not open yet'} <Icon name="arrow" />
+        </button>
+      </div>
+      {error && <p className="form-error">{error}</p>}
+
+      <div className="earnings-columns">
+        <section>
+          <div className="content-head"><div><p className="kicker">Scheduled value</p><h2>Selected sessions</h2></div></div>
+          {projectedSessions.length ? (
+            <div className="earnings-list">
+              {projectedSessions.map(session => (
+                <article key={session.id}>
+                  <div><strong>{session.topic}</strong><p>{session.scheduled_for}</p></div>
+                  <span>{session.duration_minutes} min</span>
+                  <b>{formatMoney(session.guideEarningsPence)}</b>
+                </article>
+              ))}
+            </div>
+          ) : <EmptyState icon="wallet" title="No projected earnings yet" text="Selected paid sessions will appear here before they become payable." />}
+        </section>
+
+        <section>
+          <div className="content-head"><div><p className="kicker">Ledger</p><h2>Recent earnings</h2></div></div>
+          {entries.length ? (
+            <div className="earnings-list">
+              {entries.map(entry => (
+                <article key={entry.id}>
+                  <div><strong>{entry.reason}</strong><p>{entry.topic || entry.created_at}</p></div>
+                  <Status value={entry.status} />
+                  <b>{formatMoney(entry.amount_pence)}</b>
+                </article>
+              ))}
+            </div>
+          ) : <EmptyState icon="check" title="No payable earnings yet" text="Completed paid sessions will create entries in this ledger." />}
+        </section>
+      </div>
     </div>
   );
 }

@@ -80,6 +80,17 @@ db.exec(`
     last_read_rowid INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (session_id, user_id)
   );
+
+  CREATE TABLE IF NOT EXISTS guide_earnings (
+    id TEXT PRIMARY KEY,
+    guide_id TEXT NOT NULL REFERENCES users(id),
+    session_id TEXT REFERENCES sessions(id),
+    amount_pence INTEGER NOT NULL CHECK (amount_pence >= 0),
+    platform_fee_pence INTEGER NOT NULL DEFAULT 0 CHECK (platform_fee_pence >= 0),
+    status TEXT NOT NULL CHECK (status IN ('pending', 'available', 'paid', 'cancelled')),
+    reason TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 function addColumnIfMissing(table, column, definition) {

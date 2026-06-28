@@ -10,6 +10,7 @@ export const config = {
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
   stripeApiVersion: process.env.STRIPE_API_VERSION || '2026-02-25.clover',
   allowLiveStripe: process.env.ALLOW_LIVE_STRIPE === 'true',
+  enableGuidePayouts: process.env.ENABLE_GUIDE_PAYOUTS === 'true',
   isProduction: process.env.NODE_ENV === 'production',
 };
 
@@ -17,6 +18,8 @@ config.stripeEnabled = Boolean(
   config.stripeSecretKey
   && (!config.stripeSecretKey.startsWith('sk_live_') || (config.isProduction && config.allowLiveStripe)),
 );
+
+config.guidePayoutsEnabled = Boolean(config.stripeEnabled && config.enableGuidePayouts);
 
 if (
   config.isProduction
